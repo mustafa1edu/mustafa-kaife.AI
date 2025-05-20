@@ -4,11 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mustafa.AI</title>
+    <!-- Vercel deployment configuration -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Mustafa.AI",
+      "description": "AI assistant created by Mustafa Kaify",
+      "applicationCategory": "ArtificialIntelligence"
+    }
+    </script>
     <style>
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
+            -webkit-tap-highlight-color: transparent;
         }
         
         body {
@@ -23,6 +34,7 @@
             display: flex;
             flex-direction: column;
             touch-action: manipulation;
+            overflow-x: hidden;
         }
         
         #header {
@@ -31,6 +43,7 @@
             justify-content: space-between;
             padding: 10px 0;
             position: relative;
+            flex-shrink: 0;
         }
         
         .header-content {
@@ -44,12 +57,14 @@
             height: 40px;
             border-radius: 50%;
             object-fit: cover;
+            user-select: none;
         }
         
         h1 {
             color: #4285F4;
             font-weight: bold;
             font-size: 1.3rem;
+            user-select: none;
         }
         
         #voice-btn {
@@ -62,11 +77,17 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        #voice-btn:active {
+            transform: scale(0.9);
         }
         
         #voice-btn img {
             width: 24px;
             height: 24px;
+            pointer-events: none;
         }
         
         #chat-container {
@@ -78,6 +99,7 @@
             flex-grow: 1;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
+            scroll-behavior: smooth;
         }
         
         .message {
@@ -94,6 +116,12 @@
             text-justify: inter-word;
             font-size: 0.95rem;
             word-break: break-word;
+            opacity: 0;
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+        
+        @keyframes fadeIn {
+            to { opacity: 1; }
         }
         
         .user-message {
@@ -116,6 +144,7 @@
             border-radius: 50%;
             object-fit: cover;
             flex-shrink: 0;
+            user-select: none;
         }
         
         .message-content {
@@ -126,6 +155,7 @@
             display: flex;
             gap: 8px;
             padding-top: 8px;
+            flex-shrink: 0;
         }
         
         #user-input {
@@ -138,6 +168,11 @@
             font-weight: bold;
             background-color: white;
             outline: none;
+            transition: border-color 0.2s;
+        }
+        
+        #user-input:focus {
+            border-color: #4285F4;
         }
         
         .button-container {
@@ -158,6 +193,7 @@
             align-items: center;
             justify-content: center;
             white-space: nowrap;
+            user-select: none;
         }
         
         #send-button {
@@ -171,7 +207,7 @@
             display: none;
         }
         
-        #send-button:hover, #stop-button:hover {
+        #send-button:active, #stop-button:active {
             opacity: 0.9;
             transform: scale(0.98);
         }
@@ -192,6 +228,8 @@
             margin-bottom: 12px;
             align-items: center;
             gap: 8px;
+            opacity: 0;
+            animation: fadeIn 0.3s ease-out forwards;
         }
         
         .typing-dots {
@@ -224,13 +262,26 @@
             30% { transform: translateY(-4px); }
         }
         
+        /* Loading spinner for when voice is playing */
+        .voice-loading {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Mobile optimizations */
         @media (max-width: 480px) {
             body {
                 padding: 10px;
+                height: calc(var(--vh, 1vh) * 100);
             }
             
             #chat-container {
                 padding: 12px;
+                border-radius: 10px;
             }
             
             .message {
@@ -241,12 +292,25 @@
             
             #user-input {
                 padding: 10px 12px;
+                font-size: 0.9rem;
             }
             
             #send-button, #stop-button {
                 padding: 0 15px;
                 font-size: 0.9rem;
+                height: 42px;
             }
+            
+            .message-avatar {
+                width: 24px;
+                height: 24px;
+            }
+        }
+        
+        /* Prevent blue highlight on tap on mobile */
+        *:not(input):not(textarea) {
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
         }
     </style>
 </head>
@@ -256,7 +320,7 @@
             <img id="logo" src="https://cdn.solo.to/user/a/668d94bac1a774_92482248.jpg" alt="Mustafa.AI Logo">
             <h1>Mustafa.AI</h1>
         </div>
-        <button id="voice-btn">
+        <button id="voice-btn" aria-label="Play introduction">
             <img src="https://cdn-icons-png.flaticon.com/512/6328/6328284.png" alt="Voice Introduction">
         </button>
     </div>
@@ -264,7 +328,7 @@
     <div id="chat-container"></div>
     
     <div id="input-container">
-        <input type="text" id="user-input" placeholder="پرسیارێك بكە / Ask a question..." autocomplete="off">
+        <input type="text" id="user-input" placeholder="پرسیارێك بكە / Ask a question..." autocomplete="off" enterkeyhint="send">
         <div class="button-container">
             <button id="stop-button">وەستاندن / Stop</button>
             <button id="send-button">ناردن / Send</button>
@@ -272,215 +336,244 @@
     </div>
     
     <script>
-        const chatContainer = document.getElementById('chat-container');
-        const userInput = document.getElementById('user-input');
-        const sendButton = document.getElementById('send-button');
-        const stopButton = document.getElementById('stop-button');
-        const voiceBtn = document.getElementById('voice-btn');
-        
-        // Replace with your actual API key
-        const API_KEY = 'AIzaSyArm97hdjhLpzwiASwwQ7u0d6BfVv7KI_4';
-        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
-        
-        let typingInterval;
-        let currentTypingElement;
-        let abortController = null;
-        let isTypingInProgress = false;
-        
-        // Add event listeners
-        sendButton.addEventListener('click', sendMessage);
-        stopButton.addEventListener('click', stopTyping);
-        voiceBtn.addEventListener('click', playIntroduction);
-        userInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                sendMessage();
+        // Vercel deployment ready - pure HTML/CSS/JS - no build needed
+        document.addEventListener('DOMContentLoaded', function() {
+            // Fix mobile viewport height
+            function adjustViewport() {
+                let vh = window.innerHeight * 0.01;
+                document.documentElement.style.setProperty('--vh', `${vh}px`);
             }
-        });
-        
-        // Handle touch events for better mobile responsiveness
-        document.addEventListener('touchstart', function() {}, {passive: true});
-        
-        function playIntroduction() {
-            const introText = "Hello I am artificial intelligence and created by Mustafa Kaify, how can I help you?";
-            const utterance = new SpeechSynthesisUtterance(introText);
-            utterance.lang = 'en-US';
-            utterance.rate = 0.9;
+            adjustViewport();
+            window.addEventListener('resize', adjustViewport);
             
-            // Add visual feedback
-            voiceBtn.style.transform = 'scale(0.9)';
-            setTimeout(() => {
-                voiceBtn.style.transform = 'scale(1)';
-            }, 200);
+            const chatContainer = document.getElementById('chat-container');
+            const userInput = document.getElementById('user-input');
+            const sendButton = document.getElementById('send-button');
+            const stopButton = document.getElementById('stop-button');
+            const voiceBtn = document.getElementById('voice-btn');
+            const voiceIcon = voiceBtn.querySelector('img');
             
-            speechSynthesis.speak(utterance);
-        }
-        
-        function sendMessage() {
-            const message = userInput.value.trim();
-            if (!message) return;
+            // Replace with your actual API key
+            const API_KEY = 'AIzaSyArm97hdjhLpzwiASwwQ7u0d6BfVv7KI_4';
+            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
             
-            // Add user message to chat
-            addMessage(message, 'user');
-            userInput.value = '';
-            sendButton.disabled = true;
-            stopButton.style.display = 'block';
+            let typingInterval;
+            let currentTypingElement;
+            let abortController = null;
+            let isTypingInProgress = false;
+            let isVoicePlaying = false;
             
-            // Show typing indicator
-            showTypingIndicator();
-            
-            // Create new AbortController for this request
-            abortController = new AbortController();
-            
-            // Send to Gemini API
-            fetch(API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [{
-                            text: message
-                        }]
-                    }]
-                }),
-                signal: abortController.signal
-            })
-            .then(response => response.json())
-            .then(data => {
-                // Hide typing indicator
-                hideTypingIndicator();
-                
-                // Get the AI's response
-                const aiResponse = data.candidates[0].content.parts[0].text;
-                isTypingInProgress = true;
-                typeWriterEffect(aiResponse, 'ai');
-            })
-            .catch(error => {
-                if (error.name === 'AbortError') {
-                    hideTypingIndicator();
-                    addMessage("...وەستا / ...stopped", 'ai');
-                } else {
-                    hideTypingIndicator();
-                    typeWriterEffect("ببوورە، كێشەیەك هەیە. تكایە دووبارە بكەوە. / Sorry, an error occurred. Please try again.", 'ai');
-                    console.error('Error:', error);
+            // Add event listeners
+            sendButton.addEventListener('click', sendMessage);
+            stopButton.addEventListener('click', stopTyping);
+            voiceBtn.addEventListener('click', playIntroduction);
+            userInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
                 }
-            })
-            .finally(() => {
-                sendButton.disabled = false;
-                if (!isTypingInProgress) {
-                    stopButton.style.display = 'none';
-                }
-                abortController = null;
-                userInput.focus();
             });
-        }
-        
-        function stopTyping() {
-            // Abort the fetch request if it's in progress
-            if (abortController) {
-                abortController.abort();
+            
+            // Handle touch events for better mobile responsiveness
+            document.addEventListener('touchstart', function() {}, {passive: true});
+            
+            // Improved voice introduction function
+            function playIntroduction() {
+                if (isVoicePlaying) return;
+                
+                isVoicePlaying = true;
+                voiceIcon.classList.add('voice-loading');
+                
+                const introText = "Hello I am artificial intelligence and created by Mustafa Kaify, how can I help you?";
+                const utterance = new SpeechSynthesisUtterance(introText);
+                utterance.lang = 'en-US';
+                utterance.rate = 0.9;
+                
+                // Add visual feedback
+                voiceBtn.style.transform = 'scale(0.9)';
+                setTimeout(() => {
+                    voiceBtn.style.transform = 'scale(1)';
+                }, 200);
+                
+                utterance.onend = function() {
+                    isVoicePlaying = false;
+                    voiceIcon.classList.remove('voice-loading');
+                };
+                
+                utterance.onerror = function() {
+                    isVoicePlaying = false;
+                    voiceIcon.classList.remove('voice-loading');
+                };
+                
+                speechSynthesis.speak(utterance);
             }
             
-            // Stop the typing animation if it's in progress
-            if (typingInterval) {
-                clearInterval(typingInterval);
-                typingInterval = null;
-                isTypingInProgress = false;
-                stopButton.style.display = 'none';
+            function sendMessage() {
+                const message = userInput.value.trim();
+                if (!message) return;
+                
+                // Add user message to chat
+                addMessage(message, 'user');
+                userInput.value = '';
+                sendButton.disabled = true;
+                stopButton.style.display = 'block';
+                
+                // Show typing indicator
+                showTypingIndicator();
+                
+                // Create new AbortController for this request
+                abortController = new AbortController();
+                
+                // Send to Gemini API
+                fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{
+                                text: message
+                            }]
+                        }]
+                    }),
+                    signal: abortController.signal
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Hide typing indicator
+                    hideTypingIndicator();
+                    
+                    // Get the AI's response
+                    const aiResponse = data.candidates[0].content.parts[0].text;
+                    isTypingInProgress = true;
+                    typeWriterEffect(aiResponse, 'ai');
+                })
+                .catch(error => {
+                    if (error.name === 'AbortError') {
+                        hideTypingIndicator();
+                        addMessage("...وەستا / ...stopped", 'ai');
+                    } else {
+                        hideTypingIndicator();
+                        typeWriterEffect("ببوورە، كێشەیەك هەیە. تكایە دووبارە بكەوە. / Sorry, an error occurred. Please try again.", 'ai');
+                        console.error('Error:', error);
+                    }
+                })
+                .finally(() => {
+                    sendButton.disabled = false;
+                    if (!isTypingInProgress) {
+                        stopButton.style.display = 'none';
+                    }
+                    abortController = null;
+                    userInput.focus();
+                });
             }
-        }
-        
-        function addMessage(text, sender) {
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message');
-            messageDiv.classList.add(sender === 'user' ? 'user-message' : 'ai-message');
             
-            const avatar = document.createElement('img');
-            avatar.className = 'message-avatar';
-            avatar.src = sender === 'user' ? 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png' : 'https://cdn.solo.to/user/a/668d94bac1a774_92482248.jpg';
-            avatar.alt = sender === 'user' ? 'بەكارهێنەر / User' : 'Mustafa.AI';
-            
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'message-content';
-            contentDiv.textContent = text;
-            
-            messageDiv.appendChild(avatar);
-            messageDiv.appendChild(contentDiv);
-            
-            chatContainer.appendChild(messageDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-        
-        function typeWriterEffect(text, sender) {
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message');
-            messageDiv.classList.add(sender === 'user' ? 'user-message' : 'ai-message');
-            
-            const avatar = document.createElement('img');
-            avatar.className = 'message-avatar';
-            avatar.src = sender === 'user' ? 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png' : 'https://cdn.solo.to/user/a/668d94bac1a774_92482248.jpg';
-            avatar.alt = sender === 'user' ? 'بەكارهێنەر / User' : 'Mustafa.AI';
-            
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'message-content';
-            contentDiv.id = 'typing-content-' + Date.now();
-            
-            messageDiv.appendChild(avatar);
-            messageDiv.appendChild(contentDiv);
-            
-            chatContainer.appendChild(messageDiv);
-            currentTypingElement = contentDiv;
-            
-            let i = 0;
-            const speed = 20; // Adjust typing speed here (lower = faster)
-            
-            typingInterval = setInterval(() => {
-                if (i < text.length) {
-                    contentDiv.innerHTML += text.charAt(i);
-                    i++;
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
-                } else {
+            function stopTyping() {
+                // Abort the fetch request if it's in progress
+                if (abortController) {
+                    abortController.abort();
+                }
+                
+                // Stop the typing animation if it's in progress
+                if (typingInterval) {
                     clearInterval(typingInterval);
                     typingInterval = null;
                     isTypingInProgress = false;
                     stopButton.style.display = 'none';
                 }
-            }, speed);
-        }
-        
-        function showTypingIndicator() {
-            const typingDiv = document.createElement('div');
-            typingDiv.id = 'typing-indicator';
-            typingDiv.className = 'typing-indicator';
-            
-            const avatar = document.createElement('img');
-            avatar.className = 'message-avatar';
-            avatar.src = 'https://cdn.solo.to/user/a/668d94bac1a774_92482248.jpg';
-            avatar.alt = 'Mustafa.AI';
-            
-            const dotsDiv = document.createElement('div');
-            dotsDiv.className = 'typing-dots';
-            
-            for (let i = 0; i < 3; i++) {
-                const dot = document.createElement('div');
-                dot.className = 'typing-dot';
-                dotsDiv.appendChild(dot);
             }
             
-            typingDiv.appendChild(avatar);
-            typingDiv.appendChild(dotsDiv);
-            
-            chatContainer.appendChild(typingDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-        
-        function hideTypingIndicator() {
-            const typingIndicator = document.getElementById('typing-indicator');
-            if (typingIndicator) {
-                typingIndicator.remove();
+            function addMessage(text, sender) {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message');
+                messageDiv.classList.add(sender === 'user' ? 'user-message' : 'ai-message');
+                
+                const avatar = document.createElement('img');
+                avatar.className = 'message-avatar';
+                avatar.src = sender === 'user' ? 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png' : 'https://cdn.solo.to/user/a/668d94bac1a774_92482248.jpg';
+                avatar.alt = sender === 'user' ? 'بەكارهێنەر / User' : 'Mustafa.AI';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.textContent = text;
+                
+                messageDiv.appendChild(avatar);
+                messageDiv.appendChild(contentDiv);
+                
+                chatContainer.appendChild(messageDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
             }
-        }
+            
+            function typeWriterEffect(text, sender) {
+                const messageDiv = document.createElement('div');
+                messageDiv.classList.add('message');
+                messageDiv.classList.add(sender === 'user' ? 'user-message' : 'ai-message');
+                
+                const avatar = document.createElement('img');
+                avatar.className = 'message-avatar';
+                avatar.src = sender === 'user' ? 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png' : 'https://cdn.solo.to/user/a/668d94bac1a774_92482248.jpg';
+                avatar.alt = sender === 'user' ? 'بەكارهێنەر / User' : 'Mustafa.AI';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.id = 'typing-content-' + Date.now();
+                
+                messageDiv.appendChild(avatar);
+                messageDiv.appendChild(contentDiv);
+                
+                chatContainer.appendChild(messageDiv);
+                currentTypingElement = contentDiv;
+                
+                let i = 0;
+                const speed = 20; // Adjust typing speed here (lower = faster)
+                
+                typingInterval = setInterval(() => {
+                    if (i < text.length) {
+                        contentDiv.innerHTML += text.charAt(i);
+                        i++;
+                        chatContainer.scrollTop = chatContainer.scrollHeight;
+                    } else {
+                        clearInterval(typingInterval);
+                        typingInterval = null;
+                        isTypingInProgress = false;
+                        stopButton.style.display = 'none';
+                    }
+                }, speed);
+            }
+            
+            function showTypingIndicator() {
+                const typingDiv = document.createElement('div');
+                typingDiv.id = 'typing-indicator';
+                typingDiv.className = 'typing-indicator';
+                
+                const avatar = document.createElement('img');
+                avatar.className = 'message-avatar';
+                avatar.src = 'https://cdn.solo.to/user/a/668d94bac1a774_92482248.jpg';
+                avatar.alt = 'Mustafa.AI';
+                
+                const dotsDiv = document.createElement('div');
+                dotsDiv.className = 'typing-dots';
+                
+                for (let i = 0; i < 3; i++) {
+                    const dot = document.createElement('div');
+                    dot.className = 'typing-dot';
+                    dotsDiv.appendChild(dot);
+                }
+                
+                typingDiv.appendChild(avatar);
+                typingDiv.appendChild(dotsDiv);
+                
+                chatContainer.appendChild(typingDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+            
+            function hideTypingIndicator() {
+                const typingIndicator = document.getElementById('typing-indicator');
+                if (typingIndicator) {
+                    typingIndicator.remove();
+                }
+            }
+        });
     </script>
 </body>
 </html>
